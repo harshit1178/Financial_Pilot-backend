@@ -374,6 +374,7 @@ class DashboardSummaryView(APIView):
             'total_savings_all_time':   total_savings_all_time,
             'goal_piggybank_balance':   float(profile.goal_piggybank_balance),
             'transactions':             transactions_data,
+            'current_streak':           profile.current_streak,
         }
 
         if total_spent > monthly_budget:
@@ -804,6 +805,40 @@ class WeeklyPledgeViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self._resolve_user())
 
+    # ── destroy: reverse any settled savings before deleting ──────────────────
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        with db_transaction.atomic():
+            profile = (
+                UserProfile.objects
+                .select_for_update()
+                .filter(user=instance.user)
+                .first()
+            )
+
+            # If this pledge was settled, reverse the financial side-effects
+            if instance.is_settled and instance.savings_amount:
+                saved = float(instance.savings_amount)
+                if instance.destination == 'piggybank':
+                    profile.goal_piggybank_balance = round(
+                        max(0.0, float(profile.goal_piggybank_balance) - saved), 2
+                    )
+                    profile.save(update_fields=['goal_piggybank_balance'])
+                else:  # 'general' or legacy None
+                    profile.general_pledge_savings = round(
+                        max(0.0, float(profile.general_pledge_savings) - saved), 2
+                    )
+                    profile.save(update_fields=['general_pledge_savings'])
+
+            instance.delete()
+
+        return Response(
+            {'detail': 'Pledge deleted and any settled savings reversed.'},
+            status=status.HTTP_200_OK,
+        )
+
 
 # ─── Pledge Settlement ────────────────────────────────────────────────────────
 
@@ -883,12 +918,32 @@ class PledgeSettleView(APIView):
         # ── Scenario A: Overspent ─────────────────────────────────────────────
         if total_spent > limit:
             overage = round(total_spent - limit, 2)
+
+            # Mark pledge as settled-failed and reset streak atomically
+            with db_transaction.atomic():
+                profile = (
+                    UserProfile.objects
+                    .select_for_update()
+                    .filter(user=user)
+                    .first()
+                )
+                if profile:
+                    profile.current_streak = 0
+                    profile.save(update_fields=['current_streak'])
+
+                pledge.is_settled     = True
+                pledge.settled_at     = timezone.now()
+                pledge.savings_amount = 0
+                pledge.destination    = None
+                pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount', 'destination'])
+
             return Response({
-                'status':   'overspent',
-                'message':  f'\U0001f534 You exceeded your {category} limit by \u20b9{overage:,.2f}!',
-                'spent':    round(total_spent, 2),
-                'limit':    limit,
-                'overage':  overage,
+                'status':         'overspent',
+                'message':        f'\U0001f534 You exceeded your {category} limit by \u20b9{overage:,.2f}! Streak reset.',
+                'spent':          round(total_spent, 2),
+                'limit':          limit,
+                'overage':        overage,
+                'current_streak': 0,
             }, status=status.HTTP_200_OK)
 
         # ── Scenario B: Saved ─────────────────────────────────────────────────
@@ -934,29 +989,28 @@ class PledgeSettleView(APIView):
                 )
 
             if destination == 'piggybank':
-                # Transfer: credit the persistent piggybank balance
+                # Transfer: credit the persistent piggybank balance + bump streak
                 profile.goal_piggybank_balance = round(
                     float(profile.goal_piggybank_balance) + saved, 2
                 )
-                profile.save(update_fields=['goal_piggybank_balance'])
+                profile.current_streak += 1
+                profile.save(update_fields=['goal_piggybank_balance', 'current_streak'])
                 dest_label = 'Goal Piggybank'
             else:
-                # 'general' — savings credited to general savings pool.
-                # Increment the persistent general_pledge_savings accumulator so
-                # total_savings_all_time correctly grows on the dashboard.
+                # 'general' — savings credited to general savings pool + bump streak
                 profile.general_pledge_savings = round(
                     float(profile.general_pledge_savings) + saved, 2
                 )
-                profile.save(update_fields=['general_pledge_savings'])
+                profile.current_streak += 1
+                profile.save(update_fields=['general_pledge_savings', 'current_streak'])
                 dest_label = 'General Savings'
 
-            # Crucial: mark pledge settled WITH the saved_amount.
-            # This permanently removes saved_amount from the spendable monthly budget
-            # via _settled_savings_this_month() on every subsequent dashboard request.
+            # Mark pledge settled WITH saved_amount AND destination for reversal support
             pledge.is_settled     = True
             pledge.settled_at     = timezone.now()
             pledge.savings_amount = saved
-            pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount'])
+            pledge.destination    = destination
+            pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount', 'destination'])
 
         # Return live metrics for immediate frontend card refresh
         metrics = _metrics_snapshot(profile)
@@ -971,4 +1025,70 @@ class PledgeSettleView(APIView):
             'piggybank_balance':        float(profile.goal_piggybank_balance),
             'monthly_remaining_budget': metrics['monthly_remaining_budget'],
             'total_savings_all_time':   metrics['total_savings_all_time'],
+            'current_streak':           profile.current_streak,
+        }, status=status.HTTP_200_OK)
+
+
+# ─── Salary Update ────────────────────────────────────────────────────────────
+
+class SalaryUpdateView(APIView):
+    """
+    PATCH /api/profile/update-salary/
+
+    Body: { "monthly_salary": <positive number> }
+
+    Single-user sandbox: always updates the profile of User.objects.first().
+    Updates monthly_salary, recomputes savings_withdrawn, and returns
+    reconciled budget metrics plus current_streak.
+    """
+
+    def patch(self, request):
+        from django.contrib.auth.models import User
+
+        raw = request.data.get('monthly_salary')
+        if raw is None:
+            return Response(
+                {'error': 'monthly_salary is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            new_salary = float(raw)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'monthly_salary must be a valid number.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_salary <= 0:
+            return Response(
+                {'error': 'monthly_salary must be a positive number.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user if request.user.is_authenticated else User.objects.first()
+        if user is None:
+            return Response({'error': 'No user found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            profile = (
+                UserProfile.objects
+                .select_for_update()
+                .filter(user=user)
+                .first()
+            )
+            if profile is None:
+                return Response(
+                    {'error': 'No profile found.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            profile.monthly_salary = round(new_salary, 2)
+            profile.save(update_fields=['monthly_salary'])
+            _recompute_savings_withdrawn(profile)
+
+        metrics = _metrics_snapshot(profile)
+
+        return Response({
+            'monthly_salary': float(profile.monthly_salary),
+            'current_streak': profile.current_streak,
+            **metrics,
         }, status=status.HTTP_200_OK)

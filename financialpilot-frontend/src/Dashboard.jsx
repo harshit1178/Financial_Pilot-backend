@@ -26,6 +26,8 @@ import {
   CheckCircle2,
   ChevronDown,
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { StreakCounter, EditableSalary, AnimatedNumber } from './SharedUI'
 
 const API_BASE      = 'http://127.0.0.1:8000/api'
 const DASHBOARD_URL = `${API_BASE}/dashboard/`
@@ -58,16 +60,16 @@ const todayISO = () => new Date().toISOString().slice(0, 10)
 
 const categoryIcon = (category) => {
   const map = {
-    Food:         <Utensils size={16} />,
-    Travel:       <PlaneTakeoff size={16} />,
-    Groceries:    <ShoppingCart size={16} />,
-    Rent:         <Zap size={16} />,
-    Loan:         <Zap size={16} />,
-    Services:     <Zap size={16} />,
-    Subscription: <Bus size={16} />,
-    Others:       <MoreHorizontal size={16} />,
+    Food:         <Utensils strokeWidth={1.5} size={16} />,
+    Travel:       <PlaneTakeoff strokeWidth={1.5} size={16} />,
+    Groceries:    <ShoppingCart strokeWidth={1.5} size={16} />,
+    Rent:         <Zap strokeWidth={1.5} size={16} />,
+    Loan:         <Zap strokeWidth={1.5} size={16} />,
+    Services:     <Zap strokeWidth={1.5} size={16} />,
+    Subscription: <Bus strokeWidth={1.5} size={16} />,
+    Others:       <MoreHorizontal strokeWidth={1.5} size={16} />,
   }
-  return map[category] ?? <MoreHorizontal size={16} />
+  return map[category] ?? <MoreHorizontal strokeWidth={1.5} size={16} />
 }
 
 const categoryColor = (category) => {
@@ -103,7 +105,7 @@ function ErrorScreen({ message }) {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-3 px-6 text-center">
       <div className="w-14 h-14 rounded-full bg-rose-500/10 flex items-center justify-center mb-2">
-        <TrendingDown size={28} className="text-rose-400" />
+        <TrendingDown strokeWidth={1.5} size={28} className="text-rose-400" />
       </div>
       <h2 className="text-xl font-bold text-white">Could not connect to API</h2>
       <p className="text-slate-400 text-sm max-w-xs">{message}</p>
@@ -117,14 +119,20 @@ function ErrorScreen({ message }) {
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
-function StatCard({ label, children, className = '' }) {
+function StatCard({ label, children, className = '', glowColor = 'shadow-[0_0_30px_rgba(255,255,255,0.05)]' }) {
   return (
-    <div className={`bg-slate-900 border border-slate-800 rounded-3xl p-5 flex flex-col gap-2 ${className}`}>
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest leading-none">
+    <motion.div 
+      whileHover={{ scale: 1.02 }}
+      className={`relative group bg-white/5 backdrop-blur-xl border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] rounded-3xl p-5 flex flex-col gap-2 transition-all ${className}`}
+    >
+      <div className={`absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none ${glowColor}`} />
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest leading-none relative z-10">
         {label}
       </p>
-      {children}
-    </div>
+      <div className="relative z-10">
+        {children}
+      </div>
+    </motion.div>
   )
 }
 
@@ -138,9 +146,15 @@ function TransactionRow({ tx, onDelete, onEdit }) {
   })
 
   return (
-    <div className="flex items-center gap-3 py-3 group">
+    <motion.div 
+      layout
+      initial={{ opacity: 0, scale: 0.95, y: -10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+      className="flex items-center gap-3 py-3 group relative transition-all"
+    >
       {/* Category icon */}
-      <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${categoryColor(tx.category)}`}>
+      <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ${categoryColor(tx.category)}`}>
         {categoryIcon(tx.category)}
       </div>
 
@@ -153,33 +167,37 @@ function TransactionRow({ tx, onDelete, onEdit }) {
       {/* Amount */}
       <div className="flex items-center gap-1.5 shrink-0">
         {isExpense
-          ? <ArrowUpRight size={14} className="text-rose-400" />
-          : <ArrowDownLeft size={14} className="text-emerald-400" />}
+          ? <ArrowUpRight strokeWidth={1.5} size={14} className="text-rose-400" />
+          : <ArrowDownLeft strokeWidth={1.5} size={14} className="text-emerald-400" />}
         <span className={`text-sm font-semibold ${isExpense ? 'text-rose-400' : 'text-emerald-400'}`}>
           {fmt(tx.amount)}
         </span>
       </div>
 
       {/* Action buttons — appear on hover */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shrink-0">
-        <button
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 shrink-0 absolute right-0 bg-gradient-to-l from-[#0A0A1A] via-[#0A0A1A]/80 to-transparent pl-4 py-1 z-10 w-24 justify-end">
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
           id={`edit-tx-${tx.id}`}
           onClick={() => onEdit(tx)}
           title="Edit transaction"
-          className="w-7 h-7 rounded-xl bg-sky-500/10 hover:bg-sky-500/25 flex items-center justify-center text-sky-400 transition-colors"
+          className="w-7 h-7 rounded-xl bg-sky-500/10 hover:bg-sky-500/25 flex items-center justify-center text-sky-400 transition-colors shadow-sm"
         >
-          <Pencil size={13} />
-        </button>
-        <button
+          <Pencil strokeWidth={1.5} size={13} />
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
           id={`delete-tx-${tx.id}`}
           onClick={() => onDelete(tx)}
           title="Delete transaction"
-          className="w-7 h-7 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 flex items-center justify-center text-rose-400 transition-colors"
+          className="w-7 h-7 rounded-xl bg-rose-500/10 hover:bg-rose-500/25 flex items-center justify-center text-rose-400 transition-colors shadow-sm"
         >
-          <Trash2 size={13} />
-        </button>
+          <Trash2 strokeWidth={1.5} size={13} />
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -198,13 +216,13 @@ function ConfirmDeleteModal({ tx, onConfirm, onCancel, loading }) {
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
     >
-      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
-      <div className="relative w-full max-w-sm mx-4 bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-6 space-y-5">
+      <div className="absolute inset-0 bg-[#0A0A1A]/80 backdrop-blur-sm" />
+      <div className="relative w-full max-w-sm mx-4 bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 shadow-[0_0_40px_rgba(0,0,0,0.5)] rounded-3xl p-6 space-y-5">
 
         {/* Header */}
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-rose-500/15 flex items-center justify-center shrink-0">
-            <Trash2 size={20} className="text-rose-400" />
+            <Trash2 strokeWidth={1.5} size={20} className="text-rose-400" />
           </div>
           <div>
             <h2 className="text-base font-bold text-white leading-none">Delete Transaction?</h2>
@@ -243,8 +261,8 @@ function ConfirmDeleteModal({ tx, onConfirm, onCancel, loading }) {
             className="flex-1 bg-rose-500 hover:bg-rose-400 disabled:opacity-60 active:scale-[0.98] text-white font-bold text-sm rounded-2xl py-3 transition-all flex items-center justify-center gap-2"
           >
             {loading
-              ? <><Loader2 size={15} className="animate-spin" /> Deleting…</>
-              : <><Trash2 size={15} /> Delete</>}
+              ? <><Loader2 strokeWidth={1.5} size={15} className="animate-spin" /> Deleting…</>
+              : <><Trash2 strokeWidth={1.5} size={15} /> Delete</>}
           </button>
         </div>
       </div>
@@ -273,21 +291,23 @@ function GoalModeSelector({ currentMode, onSelect, saving }) {
   return (
     <div ref={ref} className="relative">
       {/* Trigger button */}
-      <button
+      <motion.button
+        animate={currentMode.key === 'Freestyle' ? { scale: [1, 1.02, 1], boxShadow: ['0 0 0px rgba(251,191,36,0)', '0 0 15px rgba(251,191,36,0.2)', '0 0 0px rgba(251,191,36,0)'] } : {}}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
         id="goal-mode-selector"
         onClick={() => setOpen((o) => !o)}
         disabled={saving}
-        className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-sm font-semibold rounded-2xl px-3 py-2.5 transition-all disabled:opacity-60"
+        className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 backdrop-blur-md text-white text-sm font-semibold rounded-2xl px-3 py-2.5 transition-all disabled:opacity-60"
       >
         {saving
-          ? <Loader2 size={15} className="animate-spin text-slate-400" />
+          ? <Loader2 strokeWidth={1.5} size={15} className="animate-spin text-slate-400" />
           : <CurIcon size={15} className={current.color} />}
         <span className="hidden sm:inline">{current.label}</span>
-        <ChevronDown
+        <ChevronDown strokeWidth={1.5}
           size={13}
           className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
         />
-      </button>
+      </motion.button>
 
       {/* Dropdown */}
       {open && (
@@ -314,7 +334,7 @@ function GoalModeSelector({ currentMode, onSelect, saving }) {
                     {mode.pct !== null ? `${mode.pct}% to savings` : 'Set your own %'}
                   </p>
                 </div>
-                {active && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
+                {active && <CheckCircle2 strokeWidth={1.5} size={14} className="text-emerald-400 shrink-0" />}
               </button>
             )
           })}
@@ -350,8 +370,8 @@ function CustomPercentModal({ onConfirm, onCancel }) {
       className="fixed inset-0 z-[60] flex items-center justify-center"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}
     >
-      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
-      <div className="relative w-full max-w-sm bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-6 space-y-4">
+      <div className="absolute inset-0 bg-[#0A0A1A]/80 backdrop-blur-sm" />
+      <div className="relative w-full max-w-sm bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 shadow-[0_0_40px_rgba(0,0,0,0.5)] rounded-3xl p-6 space-y-4">
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -363,7 +383,7 @@ function CustomPercentModal({ onConfirm, onCancel }) {
             onClick={onCancel}
             className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
           >
-            <X size={16} />
+            <X strokeWidth={1.5} size={16} />
           </button>
         </div>
 
@@ -488,8 +508,8 @@ function AddExpenseModal({ onClose, onSuccess, initialTx = null }) {
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" />
-      <div className="relative w-full sm:max-w-md bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 pb-8 space-y-5">
+      <div className="absolute inset-0 bg-[#0A0A1A]/80 backdrop-blur-sm" />
+      <div className="relative w-full sm:max-w-md bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 shadow-[0_0_40px_rgba(0,0,0,0.5)] rounded-t-3xl sm:rounded-3xl p-6 pb-8 space-y-5">
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -505,7 +525,7 @@ function AddExpenseModal({ onClose, onSuccess, initialTx = null }) {
             onClick={onClose}
             className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
           >
-            <X size={16} />
+            <X strokeWidth={1.5} size={16} />
           </button>
         </div>
 
@@ -571,7 +591,7 @@ function AddExpenseModal({ onClose, onSuccess, initialTx = null }) {
           {/* Error — prominent red alert with icon */}
           {error && (
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl px-4 py-3">
-              <ShieldAlert size={16} className="text-rose-400 shrink-0 mt-0.5" />
+              <ShieldAlert strokeWidth={1.5} size={16} className="text-rose-400 shrink-0 mt-0.5" />
               <p className="text-sm text-rose-400 leading-snug">{error}</p>
             </div>
           )}
@@ -579,7 +599,7 @@ function AddExpenseModal({ onClose, onSuccess, initialTx = null }) {
           {/* Success (inside modal) */}
           {done && (
             <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl px-4 py-3">
-              <CheckCircle2 size={16} />
+              <CheckCircle2 strokeWidth={1.5} size={16} />
               {isEdit ? 'Transaction updated! Refreshing…' : 'Expense saved! Dashboard is updating…'}
             </div>
           )}
@@ -600,13 +620,13 @@ function AddExpenseModal({ onClose, onSuccess, initialTx = null }) {
             } disabled:opacity-70`}
           >
             {done ? (
-              <><CheckCircle2 size={18} /> {isEdit ? 'Updated!' : 'Expense Added!'}</>
+              <><CheckCircle2 strokeWidth={1.5} size={18} /> {isEdit ? 'Updated!' : 'Expense Added!'}</>
             ) : submitting ? (
-              <><Loader2 size={18} className="animate-spin" /> {isEdit ? 'Updating…' : 'Saving…'}</>
+              <><Loader2 strokeWidth={1.5} size={18} className="animate-spin" /> {isEdit ? 'Updating…' : 'Saving…'}</>
             ) : isEdit ? (
-              <><Pencil size={18} /> Update Expense</>
+              <><Pencil strokeWidth={1.5} size={18} /> Update Expense</>
             ) : (
-              <><Plus size={18} /> Add Expense</>
+              <><Plus strokeWidth={1.5} size={18} /> Add Expense</>
             )}
           </button>
         </form>
@@ -697,6 +717,7 @@ export default function Dashboard() {
     days_left               = 1,
     total_savings_all_time  = 0,
     transactions            = [],
+    current_streak          = 0,
   } = data
 
   const currentMode  = GOAL_MODES.find((m) => m.key === goal_mode) ?? GOAL_MODES[1]
@@ -706,28 +727,32 @@ export default function Dashboard() {
   const recent       = [...(transactions ?? [])].slice(0, 5)
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen relative overflow-hidden bg-[#0A0A1A] text-white selection:bg-emerald-500/30">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#0A0A1A] to-[#0A0A1A] -z-20" />
+      <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-violet-600/20 blur-[120px] rounded-full -z-10 mix-blend-screen animate-pulse-slow pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-[600px] h-[600px] bg-teal-600/10 blur-[150px] rounded-full -z-10 mix-blend-screen pointer-events-none" />
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
-              <Wallet size={20} className="text-slate-950" />
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.4)] border border-emerald-300/50">
+              <Wallet strokeWidth={1.5} size={20} className="text-slate-950" />
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-white leading-none">FinancialPilot</h1>
-              <p className="text-xs text-slate-500 mt-0.5">Your smart money co-pilot</p>
+              <EditableSalary salary={total_salary} onUpdateSuccess={() => fetchDashboardData(true)} />
             </div>
           </div>
 
-          {/* Right side: Goals nav + Goal Mode selector + Add Expense */}
+          {/* Right side: Streak + Goals nav + Goal Mode selector + Add Expense */}
           <div className="flex items-center gap-2">
+            <StreakCounter streak={current_streak} />
             <Link
               to="/goals"
-              className="flex items-center gap-1.5 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-400 font-semibold text-sm rounded-2xl px-3 py-2.5 transition-all"
+              className="flex items-center gap-1.5 bg-white/5 hover:bg-violet-500/20 backdrop-blur-md border border-white/10 hover:border-violet-500/30 text-violet-400 font-semibold text-sm rounded-2xl px-3 py-2.5 transition-all shadow-sm"
             >
-              <PiggyBank size={15} />
+              <PiggyBank strokeWidth={1.5} size={15} />
               <span className="hidden sm:inline">Goals</span>
             </Link>
             <GoalModeSelector
@@ -735,14 +760,16 @@ export default function Dashboard() {
               onSelect={handleModeSelect}
               saving={savingMode}
             />
-            <button
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               id="open-add-expense"
               onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-sm rounded-2xl px-4 py-2.5 shadow-lg shadow-emerald-500/30 transition-all"
+              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm rounded-2xl px-4 py-2.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] transition-all"
             >
-              <Plus size={18} />
+              <Plus strokeWidth={1.5} size={18} />
               <span className="hidden sm:inline">Add Expense</span>
-            </button>
+            </motion.button>
           </div>
         </header>
 
@@ -750,25 +777,25 @@ export default function Dashboard() {
         <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
 
           {/* Monthly Remaining Budget */}
-          <StatCard label="Monthly Budget Left">
+          <StatCard label="Monthly Budget Left" glowColor="shadow-[0_0_30px_rgba(52,211,153,0.15)]">
             <p className="text-2xl sm:text-3xl font-extrabold text-emerald-400 leading-none tracking-tight">
-              {fmt(monthly_remaining_budget)}
+              <AnimatedNumber value={monthly_remaining_budget} />
             </p>
             <p className="text-xs text-slate-500">of {fmt(monthly_budget)} budget</p>
           </StatCard>
 
           {/* Total Spent */}
-          <StatCard label="Total Spent">
+          <StatCard label="Total Spent" glowColor="shadow-[0_0_30px_rgba(251,113,133,0.15)]">
             <p className="text-2xl sm:text-3xl font-extrabold text-rose-400 leading-none tracking-tight">
-              {fmt(total_spent)}
+              <AnimatedNumber value={total_spent} />
             </p>
             <p className="text-xs text-slate-500">{spentPercent}% of budget used</p>
           </StatCard>
 
           {/* Total Life Savings */}
-          <StatCard label="Total Life Savings">
+          <StatCard label="Total Life Savings" glowColor="shadow-[0_0_30px_rgba(34,211,238,0.15)]">
             <p className="text-2xl sm:text-3xl font-extrabold text-cyan-400 leading-none tracking-tight">
-              {fmt(total_savings_all_time)}
+              <AnimatedNumber value={total_savings_all_time} />
             </p>
             <p className="text-xs text-slate-500">{savings_percent}% savings rate</p>
           </StatCard>
@@ -776,17 +803,17 @@ export default function Dashboard() {
           {/* Safe Budget for Today */}
           <StatCard
             label="Safe Budget for Today"
-            className={isOverDSL ? 'border-rose-500/60 shadow-sm shadow-rose-500/10' : ''}
+            className={isOverDSL ? 'border-rose-500/60 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_0_15px_rgba(244,63,94,0.2)]' : ''} glowColor={isOverDSL ? "shadow-[0_0_30px_rgba(244,63,94,0.3)]" : "shadow-[0_0_30px_rgba(56,189,248,0.15)]"}
           >
             <p className={`text-2xl sm:text-3xl font-extrabold leading-none tracking-tight ${
               isOverDSL ? 'text-rose-400' : 'text-sky-400'
             }`}>
-              {fmt(daily_safe_limit)}
+              <AnimatedNumber value={daily_safe_limit} />
             </p>
             <p className="text-xs text-slate-500">
               {isOverDSL ? (
                 <span className="text-rose-400 flex items-center gap-1">
-                  <ShieldAlert size={11} />
+                  <ShieldAlert strokeWidth={1.5} size={11} />
                   Over budget today
                 </span>
               ) : (
@@ -798,7 +825,7 @@ export default function Dashboard() {
 
         {/* ── Pilot Insight ───────────────────────────────────────────────── */}
         <section>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl px-6 py-5 flex items-start gap-4">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] rounded-3xl px-6 py-5 flex items-start gap-4 hover:shadow-[0_0_20px_rgba(255,255,255,0.05)] transition-shadow">
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${currentMode.bg}`}>
               <ModeIcon size={15} className={currentMode.color} />
             </div>
@@ -807,7 +834,7 @@ export default function Dashboard() {
               <span className={`font-bold ${currentMode.color}`}>{goal_mode} Mode</span>
               {' '}({savings_percent}% to savings).{' '}
               To reach your savings goal, stay under{' '}
-              <span className="font-bold text-emerald-400">{fmt(daily_safe_limit)}</span>{' '}
+              <span className="font-bold text-emerald-400"><AnimatedNumber value={daily_safe_limit} /></span>{' '}
               today.{' '}
               <span className="text-slate-500">{days_left} {days_left === 1 ? 'day' : 'days'} left this month.</span>
             </p>
@@ -816,7 +843,7 @@ export default function Dashboard() {
 
         {/* ── Recent Transactions ──────────────────────────────────────────── */}
         <section>
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] rounded-3xl p-6 hover:shadow-[0_0_20px_rgba(255,255,255,0.05)] transition-shadow relative overflow-hidden">
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-sm font-bold text-white">Recent Transactions</h2>
               <span className="text-xs text-slate-500">Last 5 entries</span>
@@ -824,22 +851,24 @@ export default function Dashboard() {
 
             {recent.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <ShoppingCart size={34} className="text-slate-700" />
+                <ShoppingCart strokeWidth={1.5} size={34} className="text-slate-700" />
                 <p className="text-slate-500 text-sm">No transactions yet</p>
                 <p className="text-xs text-slate-600">
                   Hit the <span className="text-emerald-400 font-semibold">+ Add Expense</span> button to log one
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-800">
-                {recent.map((tx) => (
-                  <TransactionRow
+              <div className="divide-y divide-white/5">
+                <AnimatePresence initial={false}>
+                  {recent.map((tx) => (
+                    <TransactionRow
                     key={tx.id}
                     tx={tx}
                     onDelete={(t) => setDeleteTarget(t)}
                     onEdit={(t)   => setEditTarget(t)}
                   />
-                ))}
+                  ))}
+                </AnimatePresence>
               </div>
             )}
           </div>
@@ -860,14 +889,14 @@ export default function Dashboard() {
             : 'bg-emerald-500 text-slate-950 shadow-emerald-500/30'
         }`}>
           {toast.type === 'warning'
-            ? <AlertTriangle size={16} className="shrink-0" />
-            : <CheckCircle2 size={16} className="shrink-0" />}
+            ? <AlertTriangle strokeWidth={1.5} size={16} className="shrink-0" />
+            : <CheckCircle2 strokeWidth={1.5} size={16} className="shrink-0" />}
           <span className="flex-1 leading-snug">{toast.message}</span>
           <button
             onClick={() => setToast(null)}
             className="ml-1 opacity-60 hover:opacity-100 transition-opacity shrink-0"
           >
-            <X size={14} />
+            <X strokeWidth={1.5} size={14} />
           </button>
         </div>
       )}

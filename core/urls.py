@@ -5,6 +5,7 @@ from .views import (
     TransactionViewSet, DashboardSummaryView, TransactionCreateView, ProfileUpdateView,
     GoalViewSet, GoalWithdrawView,
     WeeklyCategoryBudgetViewSet, WeeklyPledgeViewSet, PledgeSettleView,
+    SalaryUpdateView,
 )
 
 router = DefaultRouter()
@@ -19,8 +20,9 @@ urlpatterns = [
     path('transactions/add/', TransactionCreateView.as_view(), name='transaction-add'),
 
     # ── Dashboard & Profile ───────────────────────────────────────────────────
-    path('dashboard/',        DashboardSummaryView.as_view(),  name='dashboard-summary'),
-    path('profile/',          ProfileUpdateView.as_view(),      name='profile-update'),
+    path('dashboard/',               DashboardSummaryView.as_view(), name='dashboard-summary'),
+    path('profile/',                 ProfileUpdateView.as_view(),    name='profile-update'),
+    path('profile/update-salary/',   SalaryUpdateView.as_view(),     name='profile-update-salary'),
 
     # ── Goals ─────────────────────────────────────────────────────────────────
     # Must come BEFORE router to avoid "withdraw" being parsed as a {pk}

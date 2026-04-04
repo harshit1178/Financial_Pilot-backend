@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import axios from 'axios'
-import confetti from 'canvas-confetti'
 import {
   Wallet, ArrowLeft, Plus, X, Trophy, PiggyBank,
   Lock, Unlock, Loader2, CheckCircle2, AlertTriangle,
   ShieldAlert, Trash2, Target, ChevronDown, Calendar,
   TrendingUp, Flame, Star,
 } from 'lucide-react'
+import { StreakCounter, EditableSalary } from './SharedUI'
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 const API = 'http://127.0.0.1:8000/api'
@@ -305,13 +305,13 @@ function GoalCard({ goal, index, piggybank, onDelete }) {
 
   return (
     <div className={`relative bg-slate-900 border rounded-3xl p-5 transition-all ${isFunded && index === 0
-        ? 'border-emerald-500/60 shadow-lg shadow-emerald-500/10'
-        : 'border-slate-800'
+      ? 'border-emerald-500/60 shadow-lg shadow-emerald-500/10'
+      : 'border-slate-800'
       }`}>
       {/* Priority badge */}
       <div className={`absolute -top-3 -left-1 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shadow-md ${index === 0
-          ? 'bg-emerald-500 text-slate-950'
-          : 'bg-slate-700 text-slate-300'
+        ? 'bg-emerald-500 text-slate-950'
+        : 'bg-slate-700 text-slate-300'
         }`}>
         {index + 1}
       </div>
@@ -403,6 +403,8 @@ export default function GoalsPage() {
   const [budgets, setBudgets] = useState([])
   const [pledges, setPledges] = useState([])
   const [piggybank, setPiggybank] = useState(0)
+  const [totalSalary, setTotalSalary] = useState(0)
+  const [currentStreak, setCurrentStreak] = useState(0)
 
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
@@ -432,6 +434,8 @@ export default function GoalsPage() {
       setBudgets(bRes.data)
       setPledges(pRes.data)
       setPiggybank(dRes.data.goal_piggybank_balance ?? 0)
+      setTotalSalary(dRes.data.total_salary ?? 0)
+      setCurrentStreak(dRes.data.current_streak ?? 0)
     } catch {
       showToast('warning', 'Could not load data. Is Django running?', 5000)
     } finally {
@@ -561,23 +565,26 @@ export default function GoalsPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-white leading-none">Goal Piggybank</h1>
-              <p className="text-xs text-slate-500 mt-0.5">Your dream queue & weekly challenges</p>
+              <EditableSalary salary={totalSalary} onUpdateSuccess={fetchAll} />
             </div>
           </div>
-          <button
-            onClick={() => setShowAddGoal(true)}
-            className="flex items-center gap-2 bg-violet-500 hover:bg-violet-400 active:scale-95 text-white font-bold text-sm rounded-2xl px-4 py-2.5 shadow-lg shadow-violet-500/30 transition-all"
-          >
-            <Plus size={17} />
-            <span className="hidden sm:inline">Add Goal</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <StreakCounter streak={currentStreak} />
+            <button
+              onClick={() => setShowAddGoal(true)}
+              className="flex items-center gap-2 bg-violet-500 hover:bg-violet-400 active:scale-95 text-white font-bold text-sm rounded-2xl px-4 py-2.5 shadow-lg shadow-violet-500/30 transition-all"
+            >
+              <Plus size={17} />
+              <span className="hidden sm:inline">Add Goal</span>
+            </button>
+          </div>
         </header>
 
         {/* ── Piggybank Card ──────────────────────────────────────────────── */}
         <section>
           <div className={`relative rounded-3xl border p-7 overflow-hidden transition-all ${canWithdraw
-              ? 'bg-gradient-to-br from-emerald-950 to-slate-900 border-emerald-500/50 shadow-xl shadow-emerald-500/10'
-              : 'bg-gradient-to-br from-slate-900 to-slate-950 border-slate-800'
+            ? 'bg-gradient-to-br from-emerald-950 to-slate-900 border-emerald-500/50 shadow-xl shadow-emerald-500/10'
+            : 'bg-gradient-to-br from-slate-900 to-slate-950 border-slate-800'
             }`}>
             {/* Background glow */}
             {canWithdraw && (
