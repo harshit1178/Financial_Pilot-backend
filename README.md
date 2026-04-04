@@ -23,7 +23,7 @@ The Dashboard serves as the central command center for the user's financial heal
 * **Daily Safe Limit (DSL):** A dynamic calculation providing the user with a specific spending limit for the current day. It is calculated as:
   $$DSL = \frac{\text{Monthly Budget Left}}{\text{Days Remaining in Month}}$$
 * **Live Salary Sandbox:** Users can edit their monthly income directly from the header. This triggers a global state refresh, updating the budget, savings rate, and DSL instantly across the application.
-* **Overdraft Protection:** A specialized logic engine that prevents negative balances. If an expense exceeds the current budget, the system automatically draws from the user's Life Savings to keep the budget at zero, while flagging a high-priority warning.
+* **Overdraft Protection:** A specialized logic engine that prevents negative balances. If an expense exceeds the current budget, the system automatically draws from the user's Life Savings to keep the budget at zero, while flagging a high-priority warning. If the expense added exceeds the sum of current budget and total life savings, the system does not let the user input the expense as enough funds are not present.
 
 ### 2. The Goal Engine (My Dreams)
 A dedicated interface for long-term financial planning and asset acquisition.
@@ -35,8 +35,7 @@ A dedicated interface for long-term financial planning and asset acquisition.
 A gamified layer designed to encourage recurring financial discipline.
 * **Category Settlement:** Users set a weekly spending limit for specific categories (e.g., Dining). At the end of the seven-day cycle, the Settlement Engine calculates the actual spend.
 * **The Choice Modal:** If a user stays under their limit, they are prompted to move their savings into either their General Savings or their Goal Piggybank.
-* **Financial Streak:** A persistent counter that tracks consecutive successful weeks. If a user exceeds their limit in any challenge, the streak resets to zero, providing a psychological incentive for total discipline.
-
+* **Financial Streak:** A persistent counter that tracks consecutive successful under DSL days. If a user exceeds their DSL on any day, the streak resets to zero, providing a psychological incentive for total discipline.
 ---
 
 ## Technical Implementation
