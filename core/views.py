@@ -3,12 +3,12 @@ import calendar
 from django.utils import timezone
 from django.db.models import Sum
 
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from .models import UserProfile, Transaction
-from .serializers import TransactionSerializer
+from .serializers import TransactionSerializer, TransactionCreateSerializer
 
 
 class TransactionViewSet(viewsets.ModelViewSet):
@@ -71,7 +71,7 @@ class DashboardSummaryView(APIView):
         recent_txns = (
             Transaction.objects
             .filter(user=user)
-            .order_by('-date')[:5]
+            .order_by('-date', '-id')[:5]
         )
         transactions_data = TransactionSerializer(recent_txns, many=True).data
 
@@ -83,3 +83,46 @@ class DashboardSummaryView(APIView):
             'days_left': days_left,
             'transactions': transactions_data,
         })
+
+
+class TransactionCreateView(APIView):
+    """
+    POST /api/transactions/add/
+
+    Accepts JSON body:
+        {
+            "amount": 500,
+            "category": "Food",           # must be from the VALID_CATEGORIES list
+            "custom_name": "Lunch",       # optional
+            "transaction_type": "Expense",# optional, defaults to 'Expense'
+            "date": "2026-04-04T13:00:00" # optional, defaults to now
+        }
+
+    Associates the transaction with request.user if authenticated,
+    otherwise falls back to the first available user (demo / dev mode).
+    Returns the created transaction object (HTTP 201).
+    """
+
+    def post(self, request):
+        serializer = TransactionCreateSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve user: authenticated user → fallback to first user for demo
+        from django.contrib.auth.models import User
+        if request.user and request.user.is_authenticated:
+            user = request.user
+        else:
+            user = User.objects.first()
+            if user is None:
+                return Response(
+                    {'error': 'No users found in the database. Create one first.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        transaction = serializer.save(user=user)
+        return Response(
+            TransactionSerializer(transaction).data,
+            status=status.HTTP_201_CREATED,
+        )
