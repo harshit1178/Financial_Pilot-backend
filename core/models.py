@@ -6,7 +6,20 @@ class UserProfile(models.Model):
     monthly_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     savings_goal_name = models.CharField(max_length=100, blank=True, null=True)
     savings_goal_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    goal_mode = models.CharField(max_length=20, choices=[('Focus', 'Focus'), ('Balanced', 'Balanced'), ('Foody', 'Foody')], default='Balanced')
+    goal_mode = models.CharField(
+        max_length=20,
+        choices=[
+            ('Freestyle', 'Freestyle'),
+            ('Balanced',  'Balanced'),
+            ('Savings',   'Savings'),
+            ('Custom',    'Custom'),
+        ],
+        default='Balanced',
+    )
+    custom_savings_percent = models.IntegerField(default=0)   # used only when goal_mode='Custom'
+    savings_withdrawn      = models.DecimalField(             # cumulative amount drawn from savings
+        max_digits=12, decimal_places=2, default=0.00
+    )
     current_streak = models.IntegerField(default=0)
     last_streak_update = models.DateField(null=True, blank=True)
 
