@@ -147,13 +147,9 @@ def _metrics_snapshot(profile):
 
     active_months = _get_active_months(user)
     gross_savings = total_salary * (savings_pct / 100) * active_months
-    # Add persisted general pledge savings on top of the formula-based savings.
-    # goal_piggybank_balance is displayed separately; general_pledge_savings
-    # represents money the user explicitly routed to their general savings pool.
-    general_pledge_savings = float(profile.general_pledge_savings)
     total_savings_all_time = max(
         0,
-        round(gross_savings - float(profile.savings_withdrawn) + general_pledge_savings, 2),
+        round(gross_savings - float(profile.savings_withdrawn), 2),
     )
 
     return {
@@ -344,13 +340,12 @@ class DashboardSummaryView(APIView):
 
         daily_safe_limit = round(monthly_remaining_budget / days_left, 2)
 
-        # ── All-time savings (gross − withdrawn + general pledge savings, floored at 0) ─
+        # ── All-time savings (gross − withdrawn, floored at 0) ────────────────
         active_months          = _get_active_months(user)
         gross_savings          = total_salary * (savings_pct / 100) * active_months
-        general_pledge_savings = float(profile.general_pledge_savings)
         total_savings_all_time = max(
             0,
-            round(gross_savings - float(profile.savings_withdrawn) + general_pledge_savings, 2),
+            round(gross_savings - float(profile.savings_withdrawn), 2),
         )
 
         # ── 5 most recent transactions ────────────────────────────────────────
@@ -747,7 +742,7 @@ class WeeklyCategoryBudgetViewSet(viewsets.ModelViewSet):
     POST   /api/weekly-budgets/       — create a new budget limit
     GET    /api/weekly-budgets/       — list all limits
     PATCH  /api/weekly-budgets/<pk>/  — update limit amount
-    DELETE /api/weekly-budgets/<pk>/  — remove limit (blocked if unsettled pledge exists)
+    DELETE /api/weekly-budgets/<pk>/  — remove limit
     """
     serializer_class = WeeklyCategoryBudgetSerializer
 
@@ -763,20 +758,6 @@ class WeeklyCategoryBudgetViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self._resolve_user())
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        # Guard: block deletion if an active (unsettled) pledge exists for this budget
-        has_active_pledge = WeeklyPledge.objects.filter(
-            category=instance, is_settled=False
-        ).exists()
-        if has_active_pledge:
-            return Response(
-                {'error': 'Cannot delete a challenge that is currently being tracked.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        instance.delete()
-        return Response({'detail': 'Challenge deleted successfully.'}, status=status.HTTP_200_OK)
 
 
 # ─── Weekly Pledges ───────────────────────────────────────────────────────────
@@ -942,12 +923,8 @@ class PledgeSettleView(APIView):
                 dest_label = 'Goal Piggybank'
             else:
                 # 'general' — savings credited to general savings pool.
-                # Increment the persistent general_pledge_savings accumulator so
-                # total_savings_all_time correctly grows on the dashboard.
-                profile.general_pledge_savings = round(
-                    float(profile.general_pledge_savings) + saved, 2
-                )
-                profile.save(update_fields=['general_pledge_savings'])
+                # No field update needed: _settled_savings_this_month() will count
+                # this pledge's savings_amount and deduct from monthly budget.
                 dest_label = 'General Savings'
 
             # Crucial: mark pledge settled WITH the saved_amount.

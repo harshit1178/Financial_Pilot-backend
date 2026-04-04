@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import axios from 'axios'
 import {
   Wallet,
@@ -720,8 +721,15 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Right side: Goal Mode selector + Add Expense */}
+          {/* Right side: Goals nav + Goal Mode selector + Add Expense */}
           <div className="flex items-center gap-2">
+            <Link
+              to="/goals"
+              className="flex items-center gap-1.5 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-400 font-semibold text-sm rounded-2xl px-3 py-2.5 transition-all"
+            >
+              <PiggyBank size={15} />
+              <span className="hidden sm:inline">Goals</span>
+            </Link>
             <GoalModeSelector
               currentMode={goal_mode}
               onSelect={handleModeSelect}
