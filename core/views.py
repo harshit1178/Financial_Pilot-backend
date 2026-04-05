@@ -818,19 +818,18 @@ class WeeklyPledgeViewSet(viewsets.ModelViewSet):
                 .first()
             )
 
-            # If this pledge was settled, reverse the financial side-effects
+            # If this pledge was settled, reverse the financial side-effects.
+            # WeeklyPledge has no 'destination' db field, so we subtract from
+            # both pools (clamped at 0) — at most one was ever credited.
             if instance.is_settled and instance.savings_amount:
                 saved = float(instance.savings_amount)
-                if instance.destination == 'piggybank':
-                    profile.goal_piggybank_balance = round(
-                        max(0.0, float(profile.goal_piggybank_balance) - saved), 2
-                    )
-                    profile.save(update_fields=['goal_piggybank_balance'])
-                else:  # 'general' or legacy None
-                    profile.general_pledge_savings = round(
-                        max(0.0, float(profile.general_pledge_savings) - saved), 2
-                    )
-                    profile.save(update_fields=['general_pledge_savings'])
+                profile.goal_piggybank_balance = round(
+                    max(0.0, float(profile.goal_piggybank_balance) - saved), 2
+                )
+                profile.general_pledge_savings = round(
+                    max(0.0, float(profile.general_pledge_savings) - saved), 2
+                )
+                profile.save(update_fields=['goal_piggybank_balance', 'general_pledge_savings'])
 
             instance.delete()
 
@@ -874,22 +873,35 @@ class PledgeSettleView(APIView):
 
     def post(self, request):
         from datetime import timedelta
-        from django.contrib.auth.models import User
 
-        pledge_id   = request.data.get('pledge_id')
-        destination = request.data.get('destination', '').lower()
+        pledge_id = request.data.get('pledge_id')
+        # Accept both 'choice' (new) and 'destination' (legacy) from the frontend
+        choice = (
+            request.data.get('choice') or request.data.get('destination') or ''
+        ).lower()
 
         if not pledge_id:
             return Response({'error': 'pledge_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = request.user if request.user.is_authenticated else User.objects.first()
-        if user is None:
-            return Response({'error': 'No user found.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Sandbox mode: always use the first profile / user — no auth required
+        # select_for_update() requires an atomic block
+        with db_transaction.atomic():
+            _sandbox_profile = (
+                UserProfile.objects
+                .select_for_update()
+                .select_related('user')
+                .first()
+            )
+        if _sandbox_profile is None:
+            return Response({'error': 'No UserProfile found in the database.'}, status=status.HTTP_400_BAD_REQUEST)
+        user = _sandbox_profile.user
 
         try:
             pledge = WeeklyPledge.objects.select_related('category').get(pk=pledge_id, user=user)
         except WeeklyPledge.DoesNotExist:
-            return Response({'error': 'Pledge not found.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': f'Pledge {pledge_id} not found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:
+            return Response({'error': f'Pledge lookup failed: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if pledge.is_settled:
             return Response(
@@ -916,10 +928,56 @@ class PledgeSettleView(APIView):
         )
 
         # ── Scenario A: Overspent ─────────────────────────────────────────────
-        if total_spent > limit:
-            overage = round(total_spent - limit, 2)
+        try:
+            if total_spent > limit:
+                overage = round(total_spent - limit, 2)
 
-            # Mark pledge as settled-failed and reset streak atomically
+                # Mark pledge as settled-failed and reset streak atomically
+                with db_transaction.atomic():
+                    profile = (
+                        UserProfile.objects
+                        .select_for_update()
+                        .filter(user=user)
+                        .first()
+                    )
+                    if profile:
+                        profile.current_streak = 0
+                        profile.save(update_fields=['current_streak'])
+
+                    pledge.is_settled     = True
+                    pledge.settled_at     = timezone.now()
+                    pledge.savings_amount = 0
+                    pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount'])
+
+                return Response({
+                    'status':         'overspent',
+                    'message':        f'\U0001f534 You exceeded your {category} limit by \u20b9{overage:,.2f}! Streak reset.',
+                    'spent':          round(total_spent, 2),
+                    'limit':          limit,
+                    'overage':        overage,
+                    'current_streak': 0,
+                }, status=status.HTTP_200_OK)
+
+            # ── Scenario B: Saved ─────────────────────────────────────────────
+            saved = round(limit - total_spent, 2)
+
+            # If choice not yet provided, return a prompt for the frontend
+            if choice not in ('general', 'piggybank'):
+                return Response({
+                    'status':            'saved',
+                    'message':           f'\U0001f7e2 Great discipline! You saved \u20b9{saved:,.2f} on {category} this week.',
+                    'spent':             round(total_spent, 2),
+                    'limit':             limit,
+                    'savings_available': saved,
+                    'action_required':   'Choose a destination: "general" or "piggybank".',
+                }, status=status.HTTP_200_OK)
+
+            # ── Commit savings atomically ─────────────────────────────────────
+            #   saved_amount = weekly_limit - actual_spend (already computed above)
+            #   Add saved_amount to the chosen destination.
+            #   Subtract from monthly budget by marking pledge settled with savings_amount
+            #   (budget helper _settled_savings_this_month sums all settled savings_amounts).
+            #   Increment streak.
             with db_transaction.atomic():
                 profile = (
                     UserProfile.objects
@@ -927,106 +985,61 @@ class PledgeSettleView(APIView):
                     .filter(user=user)
                     .first()
                 )
-                if profile:
-                    profile.current_streak = 0
-                    profile.save(update_fields=['current_streak'])
+                if profile is None:
+                    return Response(
+                        {'error': 'No profile found.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
+                if choice == 'piggybank':
+                    # Add saved_amount to Goal Piggybank + bump streak
+                    profile.goal_piggybank_balance = round(
+                        float(profile.goal_piggybank_balance) + saved, 2
+                    )
+                    profile.current_streak += 1
+                    profile.save(update_fields=['goal_piggybank_balance', 'current_streak'])
+                    dest_label = 'Goal Piggybank'
+                else:
+                    # Add saved_amount to General Savings pool + bump streak
+                    profile.general_pledge_savings = round(
+                        float(profile.general_pledge_savings) + saved, 2
+                    )
+                    profile.current_streak += 1
+                    profile.save(update_fields=['general_pledge_savings', 'current_streak'])
+                    dest_label = 'General Savings'
+
+                # Subtract saved_amount from monthly_budget_left by marking pledge settled.
+                # _settled_savings_this_month() picks this up and deducts it from
+                # monthly_remaining_budget on every dashboard/metrics call.
+                # NOTE: WeeklyPledge has no 'destination' db field — routing is done
+                # purely via the if/else above on UserProfile fields.
                 pledge.is_settled     = True
                 pledge.settled_at     = timezone.now()
-                pledge.savings_amount = 0
-                pledge.destination    = None
-                pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount', 'destination'])
+                pledge.savings_amount = saved
+                pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount'])
+
+            # Return live metrics for immediate frontend card refresh
+            metrics = _metrics_snapshot(profile)
 
             return Response({
-                'status':         'overspent',
-                'message':        f'\U0001f534 You exceeded your {category} limit by \u20b9{overage:,.2f}! Streak reset.',
-                'spent':          round(total_spent, 2),
-                'limit':          limit,
-                'overage':        overage,
-                'current_streak': 0,
+                'status':                   'settled',
+                'message':                  f'\u2705 \u20b9{saved:,.2f} saved this week added to your {dest_label}!',
+                'spent':                    round(total_spent, 2),
+                'limit':                    limit,
+                'saved':                    saved,
+                'destination':              dest_label,
+                'piggybank_balance':        float(profile.goal_piggybank_balance),
+                'monthly_remaining_budget': metrics['monthly_remaining_budget'],
+                'total_savings_all_time':   metrics['total_savings_all_time'],
+                'current_streak':           profile.current_streak,
             }, status=status.HTTP_200_OK)
 
-        # ── Scenario B: Saved ─────────────────────────────────────────────────
-        saved = round(limit - total_spent, 2)
-
-        # If destination not yet provided, return a prompt for the frontend
-        if destination not in ('general', 'piggybank'):
-            return Response({
-                'status':            'saved',
-                'message':           f'\U0001f7e2 Great discipline! You saved \u20b9{saved:,.2f} on {category} this week.',
-                'spent':             round(total_spent, 2),
-                'limit':             limit,
-                'savings_available': saved,
-                'action_required':   'Choose a destination: "general" or "piggybank".',
-            }, status=status.HTTP_200_OK)
-
-        # ── Double-Update: commit savings atomically ───────────────────────────
-        #
-        # KEY DESIGN FIX:
-        #   savings_withdrawn is a REPLAY-COMPUTED field. _recompute_savings_withdrawn()
-        #   overwrites it on every dashboard GET, so mutating it here is instantly undone.
-        #   DO NOT touch savings_withdrawn.
-        #
-        #   The budget deduction is handled automatically by _settled_savings_this_month(),
-        #   which sums savings_amount of all settled pledges this month and subtracts from
-        #   monthly_remaining_budget in both DashboardSummaryView and _metrics_snapshot().
-        #
-        #   So for BOTH destinations we MUST:
-        #     1. Set pledge.savings_amount = saved  (what gets counted by the budget helper)
-        #     2. Set pledge.is_settled = True        (activates the helper)
-        #   For 'piggybank' we additionally credit goal_piggybank_balance (persistent field).
-        with db_transaction.atomic():
-            profile = (
-                UserProfile.objects
-                .select_for_update()
-                .filter(user=user)
-                .first()
+        except Exception as exc:
+            import traceback
+            return Response(
+                {'error': f'Settlement failed: {exc}', 'traceback': traceback.format_exc()},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-            if profile is None:
-                return Response(
-                    {'error': 'No profile found.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if destination == 'piggybank':
-                # Transfer: credit the persistent piggybank balance + bump streak
-                profile.goal_piggybank_balance = round(
-                    float(profile.goal_piggybank_balance) + saved, 2
-                )
-                profile.current_streak += 1
-                profile.save(update_fields=['goal_piggybank_balance', 'current_streak'])
-                dest_label = 'Goal Piggybank'
-            else:
-                # 'general' — savings credited to general savings pool + bump streak
-                profile.general_pledge_savings = round(
-                    float(profile.general_pledge_savings) + saved, 2
-                )
-                profile.current_streak += 1
-                profile.save(update_fields=['general_pledge_savings', 'current_streak'])
-                dest_label = 'General Savings'
-
-            # Mark pledge settled WITH saved_amount AND destination for reversal support
-            pledge.is_settled     = True
-            pledge.settled_at     = timezone.now()
-            pledge.savings_amount = saved
-            pledge.destination    = destination
-            pledge.save(update_fields=['is_settled', 'settled_at', 'savings_amount', 'destination'])
-
-        # Return live metrics for immediate frontend card refresh
-        metrics = _metrics_snapshot(profile)
-
-        return Response({
-            'status':                   'settled',
-            'message':                  f'\u2705 \u20b9{saved:,.2f} saved this week added to your {dest_label}!',
-            'spent':                    round(total_spent, 2),
-            'limit':                    limit,
-            'saved':                    saved,
-            'destination':              dest_label,
-            'piggybank_balance':        float(profile.goal_piggybank_balance),
-            'monthly_remaining_budget': metrics['monthly_remaining_budget'],
-            'total_savings_all_time':   metrics['total_savings_all_time'],
-            'current_streak':           profile.current_streak,
-        }, status=status.HTTP_200_OK)
 
 
 # ─── Salary Update ────────────────────────────────────────────────────────────

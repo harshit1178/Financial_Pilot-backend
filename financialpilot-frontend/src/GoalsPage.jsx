@@ -241,16 +241,19 @@ function DestinationModal({ saved, pledgeId, onClose, onSettled }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
-  // handleChoice: sends destination string ('piggybank' or 'general') to backend
-  const handleChoice = async (destination) => {
+  // handleChoice: sends choice string ('piggybank' or 'general') to backend
+  const handleChoice = async (selection) => {
+    console.log('Settling with:', selection, pledgeId)
     setBusy(true); setErr(null)
     try {
-      const res = await axios.post(SETTLE_URL, { pledge_id: pledgeId, destination })
+      const res = await axios.post(SETTLE_URL, { pledge_id: pledgeId, choice: selection })
       // Pass full API response to parent for authoritative state update
-      onSettled(destination, saved, res.data)
+      onSettled(selection, saved, res.data)
       onClose()
     } catch (ex) {
-      setErr(ex.response?.data?.error || 'Settlement failed.')
+      const errMsg = ex.response?.data?.error || ex.response?.data?.detail || 'Settlement failed.'
+      console.error('Settlement error:', ex.response?.data)
+      setErr(errMsg)
     } finally { setBusy(false) }
   }
 
