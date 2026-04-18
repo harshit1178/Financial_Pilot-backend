@@ -66,7 +66,7 @@ The platform utilizes a modern "Glassmorphism" aesthetic characterized by:
 ### Frontend (React)
 1. Navigate to the frontend directory.
 2. Install packages: `npm install`
-3. Launch the application: `npm start`
+3. Launch the application: `npm run dev`
 
 ---
 
